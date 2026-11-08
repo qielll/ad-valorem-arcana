@@ -1,0 +1,6 @@
+changes to do list:
+- make 'stack 'em up' band in MainMenu.jsx as a running text of 3 repeated textss
+- make the polygon svg in the ActionScreen.jsx to have simple animation
+- give me your thought on this approach in terms of possibility and frontend & backend performance effect, on making the create and edit data row in ListScreen.jsx, currently what i think of is 
+for add: by clicking plus button, a new row will appear in the table that work the same as edit option, turning the data row each cells to be able for editing
+for edit: by clicking the row will appear small modal close to the row data that has option edit and when it click it will turn the data row each cells to be able for editing it in row so it doesnt open new modal or page  
