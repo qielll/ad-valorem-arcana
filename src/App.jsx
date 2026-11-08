@@ -47,7 +47,7 @@ function Main({ lite, onToggleLite }) {
       setBanks(b)
     } catch (e) {
       setNotice(message(e))
-      setStore((s) => s ?? [[], [], [], [], []])
+      setStore((s) => s ?? [[], [], [], [], [], [], []])
     }
   }, [])
 
@@ -57,19 +57,24 @@ function Main({ lite, onToggleLite }) {
 
   const rows = store?.[list] ?? []
   const accounts = store?.[1] ?? []
+  const funds = store?.[5] ?? []
+  const categories = store?.[6] ?? []
   const options = {
-    // Interest and bank fee accounts are posted by the monthly job, so they are not offered for new entries.
-    account: accounts.filter((a) => !a.auto).map((a) => a.name),
-    fund: accounts.filter((a) => a.isFund).map((a) => a.name),
+    // Sumber uang untuk transaksi: saluran (account) non-sistem + semua dana (fund).
+    // Akun sistem (bunga & biaya admin) diisi job bulanan, jadi tidak ditawarkan untuk entri baru.
+    // Kategori sistem (Auto:*, Ledger) juga tidak ditawarkan; kategori dipilih dari daftar Category.
+    account: [...accounts.filter((a) => !a.auto).map((a) => a.name), ...funds.map((f) => f.name)],
+    fund: funds.map((f) => f.name),
     bank: ['Savings', 'Spending'],
-    role: ['Plain', 'Fund', 'Ledger fund'],
+    category: categories.filter((c) => !c.system).map((c) => c.name),
   }
 
   // ListScreen keeps an unsaved draft row locally; this only touches the local copy.
   const setRows = (next) => setStore((s) => s.map((r, i) => (i === list ? next : r)))
 
   const save = async (draft, original) => {
-    await saveRow(list, draft, original, store[1])
+    // Konteks pencocokan nama -> id antar tabel (account / fund / category) untuk api.js.
+    await saveRow(list, draft, original, { accounts, funds, categories })
     await reload()
   }
 

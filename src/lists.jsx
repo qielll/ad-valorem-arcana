@@ -32,7 +32,7 @@ export const LISTS = [
     // defaults() fills a new row; api.js validates and saves it.
     fields: [
       { key: 'name' },
-      { key: 'category' },
+      { key: 'category', select: 'category', optional: true },
       { key: 'account', select: 'account' },
       { key: 'status', choices: [['completed', 'Done'], ['planned', 'Planned']] },
       { key: 'date' },
@@ -63,23 +63,24 @@ export const LISTS = [
     ),
   },
   {
+    // Sejak pemisahan skema, daftar Account hanya berisi saluran uang (gaji, bunga,
+    // biaya admin). Dana anggaran pindah ke daftar Fund di bawah.
     title: 'Account',
-    cols: 'grid-cols-[460fr_300fr_260fr_290fr_270fr_304fr]',
-    headers: [['Name', 'pl-30'], ['Type', C], ['Bank', C], ['Role', C], ['Opening', C], ['Balance', C]],
+    cols: 'grid-cols-[460fr_300fr_260fr_420fr_444fr]',
+    headers: [['Name', 'pl-30'], ['Type', C], ['Bank', C], ['Feeds Fund', C], ['Role', C]],
     rowH: 64,
     radius: 'r-6',
     gap: 'gap-6',
     describe: (r) =>
-      r.isFund ? [`${r.name} holds ${r.balance}`, `${r.free} free after planned`] : [`${r.name} is an`, `${r.label} account`],
+      r.system ? [`${r.name} is a`, 'system account'] : [`${r.name} is an`, `${r.label} account`],
     fields: [
       { key: 'name' },
       { key: 'type', kind: true },
       { key: 'bank', select: 'bank', optional: true },
-      { key: 'role', select: 'role', optional: true },
-      { key: 'opening' },
+      { key: 'feeds', select: 'fund', optional: true },
       null,
     ],
-    blank: { name: '', type: 'in', bank: '', role: 'Plain', opening: '' },
+    blank: { name: '', type: 'in', bank: '', feeds: '' },
     render: (r) => (
       <>
         <span className="whitespace-nowrap pl-26 fs-46 font-semibold">{r.name}</span>
@@ -88,9 +89,8 @@ export const LISTS = [
           {r.label}
         </span>
         <span className={M}>{r.bank}</span>
-        <span className={M}>{r.role}</span>
-        <span className={M}>{r.opening}</span>
-        <span className={M}>{r.balance}</span>
+        <span className={M}>{r.feeds}</span>
+        <span className={M}>{r.system ? 'System' : 'Normal'}</span>
       </>
     ),
   },
@@ -154,6 +154,54 @@ export const LISTS = [
         <span className={`${T} ${C}`}>{r.amount}</span>
         <span className={`${T} ${C}`}>{r.used}</span>
         <span className={`${T} ${C}`}>{r.pct}</span>
+      </>
+    ),
+  },
+  {
+    // Dana anggaran (tabel fund): pos-pos belanja dari spreadsheet yang punya saldo,
+    // mendapat alokasi, dan tinggal di salah satu bank. Gaya sama seperti daftar Account lama.
+    title: 'Fund',
+    cols: 'grid-cols-[460fr_280fr_340fr_380fr_424fr]',
+    headers: [['Name', 'pl-30'], ['Bank', C], ['Role', C], ['Opening', C], ['Balance', C]],
+    rowH: 64,
+    radius: 'r-6',
+    gap: 'gap-6',
+    describe: (r) => [`${r.name} holds ${r.balance}`, `${r.free} free after planned`],
+    fields: [
+      { key: 'name' },
+      { key: 'bank', select: 'bank' },
+      { key: 'role', choices: [['Fund', 'Fund'], ['Ledger fund', 'Ledger fund']] },
+      { key: 'opening' },
+      null,
+    ],
+    blank: { name: '', bank: '', role: 'Fund', opening: '' },
+    render: (r) => (
+      <>
+        <span className="whitespace-nowrap pl-26 fs-46 font-semibold">{r.name}</span>
+        <span className={M}>{r.bank}</span>
+        <span className={M}>{r.role}</span>
+        <span className={M}>{r.opening}</span>
+        <span className={M}>{r.balance}</span>
+      </>
+    ),
+  },
+  {
+    // Kategori transaksi (tabel category): dulu teks bebas di kolom transaction_category.
+    // Kategori sistem (Auto:*, Ledger) hanya ditampilkan, tidak bisa diubah dari sini.
+    title: 'Category',
+    cols: 'grid-cols-[700fr_590fr_594fr]',
+    headers: [['Name', 'pl-30'], ['Kind', C], ['Used', C]],
+    rowH: 64,
+    radius: 'r-6',
+    gap: 'gap-6',
+    describe: (r) => [`${r.name} is a`, `${r.kind.toLowerCase()} category`],
+    fields: [{ key: 'name' }, null, null],
+    blank: { name: '' },
+    render: (r) => (
+      <>
+        <span className={`${T} pl-26`}>{r.name}</span>
+        <span className={M}>{r.kind}</span>
+        <span className={`${T} ${C}`}>{r.used}</span>
       </>
     ),
   },

@@ -51,7 +51,7 @@ save-a-money-menu/
     ├── App.jsx              # Auth gate, data loading, which screen is showing, save/delete
     ├── index.css            # Tailwind import, theme colours, sizing system, custom utilities
     ├── images.js            # Which picture each background slot shows (section 10.1)
-    ├── lists.jsx            # Column/row/edit definitions for the five lists (see section 8)
+    ├── lists.jsx            # Column/row/edit definitions for the seven lists (see section 8)
     ├── data.js              # Old static sample data, no longer used by the app
     ├── lib/
     │   ├── supabase.js      # Supabase client and `isConfigured`
@@ -88,6 +88,7 @@ Run the files in `supabase/migrations/` in order (Supabase CLI `supabase db push
 | `20261104000200_balance_views.sql`             | Views `account_balance` and `bank_balance`                                                                                             |
 | `20261104000300_monthly_bank_entries.sql`      | `bank_policy` table, `run_monthly_bank_entries()` function, `pg_cron` schedule                                                         |
 | `20261106000000_allocation_usage.sql`          | View `allocation_usage` (used amount per allocation)                                                                                   |
+| `20261109000000_split_fund_and_category.sql`   | Split `account` into `fund` + `account`, add `category` table (see section 14)                                                         |
 
 `seed.sql` is optional and only inserts four generic starter accounts.
 
@@ -141,7 +142,7 @@ flowchart LR
     L -->|◀ ▶| L
 ```
 
-- `App.jsx` shows `Login` until there is a session, then the app. It holds `screen` (`'main' | 'action' | 'list'`), `tab`, `list` (index into `LISTS`: 0 Transaction, 1 Account, 2 Ledger, 3 Period, 4 Allocation) and `store`.
+- `App.jsx` shows `Login` until there is a session, then the app. It holds `screen` (`'main' | 'action' | 'list'`), `tab`, `list` (index into `LISTS`: 0 Transaction, 1 Account, 2 Ledger, 3 Period, 4 Allocation, 5 Fund, 6 Category) and `store`.
 - `store[i]` holds the rows of `LISTS[i]`, loaded by `fetchAll()`. `banks` holds the real bank balances from `fetchBanks()`. Both reload after every save or delete.
 - ◀ ▶ on the list screen change `list`, so going back opens the action screen for whichever section was last shown.
 - The **Main** tab has no screen and does nothing when chosen.
@@ -235,10 +236,12 @@ The action page and the list page both render rows from the **same** `LISTS` arr
 | List        | Columns                                          |
 | ----------- | ------------------------------------------------ |
 | Transaction | Name, Category, Account, Status, Date, Amount    |
-| Account     | Name, Type, Bank, Role, Opening, Balance         |
+| Account     | Name, Type, Bank, Feeds Fund, Role               |
 | Ledger      | Expense Name, Amount, Paid, Unpaid, Status, Date |
 | Period      | Name, Start Date, End Date                       |
 | Allocation  | Period, Fund, Allocated, Used, Used %            |
+| Fund        | Name, Bank, Role, Opening, Balance               |
+| Category    | Name, Kind, Used                                 |
 
 Each entry looks like this:
 
@@ -296,13 +299,13 @@ Conventions:
 
 The UI works with flat rows; this file converts to and from the database shape.
 
-- `fetchAll()` returns `[transactions, accounts, ledger, periods, allocations]`, matching `LISTS`.
+- `fetchAll()` returns `[transactions, accounts, ledger, periods, allocations, funds, categories]`, matching `LISTS`.
 - `fetchBanks()` returns `{ savings, spending }` from the `bank_balance` view for the `RpBox`. If it fails, the app still loads and the box shows `-`.
-- `saveRow(list, draft, original, accounts)` validates and writes one row. Validation errors are thrown as `Error`s and shown in the red banner next to the toolbar.
+- `saveRow(list, draft, original, ctx)` validates and writes one row; `ctx` is `{ accounts, funds, categories }` used to resolve names to ids across the split tables. Validation errors are thrown as `Error`s and shown in the red banner next to the toolbar.
 - `removeRow(list, row)` deletes by id. Foreign keys decide what happens next: deleting a transaction deletes its ledger row; deleting an account or period sets the link on transactions to null.
 - Dates are shown as `D Mon YYYY` and accepted as that or `YYYY-MM-DD`. Numbers are shown with `en-US` commas and parsed with the commas removed. Periods are written `October 2026`.
 - Writing a transaction creates its period automatically (`ensurePeriod`).
-- A new ledger row creates a transaction on the account with `is_ledger_source` and then the ledger row. If the ledger insert fails, the transaction is deleted again.
+- A new ledger row creates a transaction on the fund with `is_ledger_source` and then the ledger row. If the ledger insert fails, the transaction is deleted again.
 - A transaction saved as Done is `completed`; saved as Planned it is `planned` with `is_planned = true`. Editing a planned row to Done keeps `is_planned`.
 - Allocation: one row per fund per period. Adding a duplicate replaces the amount (upsert).
 - Interest and Bank Admin Fee accounts are flagged `auto` and left out of the Account dropdown for new entries (an existing row that uses one still shows it).
@@ -370,7 +373,7 @@ Some one-off colours (dialog greys, placeholder text `#4a5160`, error red `#b512
 
 - **The migrations must be applied first.** `fetchAccounts` and `fetchAll` read the newer views and columns, so the app shows an error banner against an older database.
 - **No screens yet for** editing `bank_policy` (fee amount and interest rate), or for the monthly salary figures from the spreadsheet (PSI/DBklik split, deductions, nett salary, fund percentages, "owed to savings"). Salary can be entered as income transactions on the salary accounts.
-- **Only one ledger source is expected.** New ledger rows use the first account with `is_ledger_source = true`. Marking a second account as Ledger fund is not blocked.
+- **Only one ledger source is allowed.** New ledger rows use the fund with `is_ledger_source = true`; a partial unique index on `fund` now rejects marking a second fund as Ledger fund.
 - **The Transaction list is capped at 1000 rows** (newest first). Older rows are not shown.
 - **Balances depend on complete data.** The bank balances only match the real banks if every transaction, allocation and opening balance is entered. The spreadsheet's "batch expense to match real balance" row is an example of how to fix a gap.
 - **Monthly job runs in UTC.** The cron fires at 16:00 UTC (23:00 Jakarta). A different time zone needs the cron time and the `Asia/Jakarta` expressions changed in `20261104000300_monthly_bank_entries.sql`.
@@ -386,3 +389,38 @@ Some one-off colours (dialog greys, placeholder text `#4a5160`, error red `#b512
 3. Show the "owed to savings" figure (ledger amounts minus repayments) somewhere, for example on the Ledger action page.
 4. Add real artwork through `src/images.js` and design the Period screen.
 5. Self-host the Inter font if the app must work offline.
+
+## 14. Pemisahan fund, account, dan category (migrasi 20261109000000)
+
+Sejak migrasi `20261109000000_split_fund_and_category.sql`, tabel `account` tidak lagi mencampur tiga peran:
+
+- **`fund`** — dana anggaran yang punya saldo: Fixed/Comfort/Saving/Repayment Funds (dan dana baru seperti Pocket Funds di masa depan). Kolom: `fund_name`, `bank` (`savings`/`spending`), `opening_balance`, `is_ledger_source`. Saldo dibaca dari view **`fund_balance`** (rumus yang sama seperti `account_balance` lama). View `account_balance` dipertahankan sebagai alias kompatibilitas dengan bentuk kolom lama, supaya pembaca di luar frontend (misalnya bot Telegram yang memakai service role key) tidak langsung rusak.
+- **`account`** — hanya saluran uang: PSI Salary, DBklik Salary, Bank Interest, Bank Admin Fee. Kolom `bank` di sini berarti bank asal saluran tersebut (gaji masuk ke bank spending). `feeds_fund_id` menggantikan `feeds_account_id`, dan `is_system` menggantikan pengenalan akun sistem dari nama di frontend.
+- **`category`** — kategori transaksi yang dulu berupa teks bebas `transaction_category`. Transaksi kini menyimpan `category_id`; kategori bawaan sistem ditandai `is_system` (`Auto: Interest`, `Auto: Admin fee`, `Ledger`) dan tidak ditawarkan pada dropdown entri manual. Penanda entri otomatis pindah ke kolom boolean `transaction.is_auto`, yang dipakai index unik `transaction_auto_once`.
+
+Hal-hal yang dijaga tetap sama:
+
+- Baris dana dipindahkan ke `fund` **dengan id yang sama**, sehingga referensi dari `allocation` dan `transaction` tetap valid (menjadi `fund_id`) dan semua saldo per dana serta `bank_balance` (`savings`/`spending`) keluarannya tidak berubah bentuk — `RpBox` dan `fetchBanks()` tidak berubah.
+- Transaksi kini menunjuk ke tepat satu sumber: `account_id` **atau** `fund_id`. Tidak ada constraint check di database untuk ini, agar perilaku lama saat menghapus account/fund (tautan menjadi null) tetap berlaku; frontend yang menegakkannya saat menyimpan.
+- Nama harus unik **lintas** account dan fund, karena penyimpanan transaksi mencocokkan sumber uang berdasarkan nama; diperiksa di `src/lib/api.js`.
+- Job bulanan `run_monthly_bank_entries()` diganti di migrasi yang sama: saldo dibaca dari `fund_balance`, Saving Funds dicari di tabel `fund`, kategori otomatis dibuat/dicari di tabel `category`. Jadwal `pg_cron` tidak berubah.
+- Daftar di aplikasi kini ada tujuh (`LISTS` 0–6): Transaction, Account, Ledger, Period, Allocation, **Fund**, **Category**. Tab menu utama bertambah Funds dan Categories dengan gaya visual yang sama. Daftar Account tidak lagi menampilkan saldo/opening (itu milik Fund), dan kategori pada formulir Transaction kini berupa dropdown dari daftar Category.
+
+Asumsi data yang harus diperiksa **sebelum** menjalankan migrasi ini di database live (jalankan di SQL Editor):
+
+```sql
+-- Harus 0 baris: saldo awal hanya boleh hidup di baris dana.
+select account_name, opening_balance from account
+where not is_fund and opening_balance <> 0;
+
+-- Harus hanya Bank Interest -> Saving Funds.
+select a.account_name, t.account_name as feeds_ke
+from account a join account t on t.id = a.feeds_account_id;
+
+-- Catat untuk perbandingan sesudah migrasi: hasilnya harus sama persis.
+select * from bank_balance;
+select account_name, opening_balance + allocated - spent + repaid + extra_in - extra_out as balance
+from account_balance;
+```
+
+Catatan asumsi: `opening_balance` pada baris account non-dana (kalau ada) dibuang bersama kolomnya, karena saldo awal kini hanya milik fund; total bank spending dari komponen itu ikut hilang. Pointer `feeds_account_id` yang menunjuk ke non-dana juga tidak dipindahkan (menjadi null), karena `feeds_fund_id` hanya boleh menunjuk ke fund.

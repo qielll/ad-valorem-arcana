@@ -1,8 +1,12 @@
 import { supabase } from './supabase.js'
 import { MONTHS, fmtDate, fmtNum, parseDate, parseNum, parsePeriod, periodRange } from './format.js'
 
-// Same four tables as the finance tracker (periode, account, transaction, ledger).
-// The menu works with flat UI rows; this file converts to and from the database shape.
+// Lapisan data: UI bekerja dengan baris datar (flat rows), berkas ini menerjemahkan
+// ke dan dari bentuk database. Sejak pemisahan skema, tabel sumber uang ada tiga:
+//   account  = saluran pemasukan/pengeluaran (gaji, bunga, biaya admin)
+//   fund     = dana anggaran yang punya saldo (dulu baris account dengan is_fund)
+//   category = kategori transaksi (dulu teks bebas transaction_category)
+// Transaksi menunjuk ke TEPAT SATU sumber: account_id ATAU fund_id.
 
 function check(error) {
   if (error) throw new Error(error.message)
@@ -12,7 +16,7 @@ const need = (cond, message) => {
   if (!cond) throw new Error(message)
 }
 
-/* ---------- periods ---------- */
+/* ---------- periode ---------- */
 
 const monthOrder = (name) => MONTHS.findIndex((m) => m.toLowerCase() === name.toLowerCase())
 
@@ -56,50 +60,108 @@ const periodIdFor = (iso) => {
   return ensurePeriod(m - 1, y)
 }
 
-/* ---------- accounts ---------- */
+/* ---------- account (saluran) ---------- */
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')
 
 async function fetchAccounts() {
-  const [acc, bal] = await Promise.all([
+  const [acc, funds] = await Promise.all([
     supabase
       .from('account')
-      .select('id, account_name, account_type, bank, is_fund, is_ledger_source, opening_balance, feeds_account_id')
+      .select('id, account_name, account_type, bank, feeds_fund_id, is_system')
       .order('created_at', { ascending: true }),
-    supabase.from('account_balance').select('*'),
+    supabase.from('fund').select('id, fund_name'),
   ])
   check(acc.error)
+  check(funds.error)
+  const fundName = new Map((funds.data ?? []).map((f) => [f.id, f.fund_name]))
+  return (acc.data ?? []).map((a) => ({
+    id: a.id,
+    name: a.account_name,
+    type: a.account_type === 'income' ? 'in' : 'out',
+    label: a.account_type === 'income' ? 'Income' : 'Outcome',
+    bank: cap(a.bank),
+    feeds: a.feeds_fund_id ? (fundName.get(a.feeds_fund_id) ?? '') : '',
+    system: a.is_system,
+    // Akun sistem (bunga & biaya admin) diisi job bulanan, tidak ditawarkan untuk entri baru.
+    auto: a.is_system,
+  }))
+}
+
+/* ---------- fund (dana anggaran) ---------- */
+
+async function fetchFunds() {
+  const [funds, bal] = await Promise.all([
+    supabase
+      .from('fund')
+      .select('id, fund_name, bank, opening_balance, is_ledger_source')
+      .order('created_at', { ascending: true }),
+    supabase.from('fund_balance').select('*'),
+  ])
+  check(funds.error)
   check(bal.error)
-  const byId = new Map((bal.data ?? []).map((b) => [b.account_id, b]))
-  return (acc.data ?? []).map((a) => {
-    const b = byId.get(a.id)
+  const byId = new Map((bal.data ?? []).map((b) => [b.fund_id, b]))
+  return (funds.data ?? []).map((f) => {
+    const b = byId.get(f.id)
     const balance = b
       ? Number(b.opening_balance) + Number(b.allocated) - Number(b.spent) + Number(b.repaid) + Number(b.extra_in) - Number(b.extra_out)
       : null
     return {
-      id: a.id,
-      name: a.account_name,
-      type: a.account_type === 'income' ? 'in' : 'out',
-      label: a.account_type === 'income' ? 'Income' : 'Outcome',
-      bank: cap(a.bank),
-      role: a.is_ledger_source ? 'Ledger fund' : a.is_fund ? 'Fund' : 'Plain',
-      isFund: a.is_fund,
-      opening: fmtNum(a.opening_balance),
+      id: f.id,
+      name: f.fund_name,
+      bank: cap(f.bank),
+      role: f.is_ledger_source ? 'Ledger fund' : 'Fund',
+      isLedgerSource: f.is_ledger_source,
+      opening: fmtNum(f.opening_balance),
       balance: balance === null ? '' : fmtNum(balance),
       free: balance === null ? '' : fmtNum(balance - Number(b.planned)),
-      // Interest and bank fee accounts are posted by the monthly job, not picked by hand.
-      auto: !!a.feeds_account_id || a.account_name === 'Bank Admin Fee',
     }
   })
 }
 
-/* ---------- transactions ---------- */
+/* ---------- category (kategori transaksi) ---------- */
+
+async function fetchCategories() {
+  const [cats, txs] = await Promise.all([
+    supabase.from('category').select('id, name, is_system').order('created_at', { ascending: true }),
+    supabase.from('transaction').select('category_id'),
+  ])
+  check(cats.error)
+  check(txs.error)
+  const used = new Map()
+  for (const t of txs.data ?? []) {
+    if (t.category_id) used.set(t.category_id, (used.get(t.category_id) ?? 0) + 1)
+  }
+  return (cats.data ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    system: c.is_system,
+    kind: c.is_system ? 'System' : 'Normal',
+    used: fmtNum(used.get(c.id) ?? 0),
+  }))
+}
+
+// Dipakai entri ledger dan job lain di frontend: kategori sistem dibuat bila belum ada.
+async function ensureCategoryId(name) {
+  const found = await supabase.from('category').select('id').eq('name', name).limit(1).maybeSingle()
+  check(found.error)
+  if (found.data) return found.data.id
+  const created = await supabase
+    .from('category')
+    .insert({ name, is_system: true })
+    .select('id')
+    .single()
+  check(created.error)
+  return created.data.id
+}
+
+/* ---------- transaksi ---------- */
 
 async function fetchTransactions() {
   const { data, error } = await supabase
     .from('transaction')
     .select(
-      'id, transaction_name, transaction_category, amount, transaction_date, transaction_status, is_planned, account:account_id(account_name, account_type)',
+      'id, transaction_name, amount, transaction_date, transaction_status, is_planned, account:account_id(account_name, account_type), fund:fund_id(fund_name), category:category_id(name)',
     )
     .order('transaction_date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -108,11 +170,13 @@ async function fetchTransactions() {
   return (data ?? []).map((t) => ({
     id: t.id,
     name: t.transaction_name,
-    category: t.transaction_category ?? '',
+    category: t.category?.name ?? '',
     status: t.transaction_status,
     planned: t.is_planned,
-    account: t.account?.account_name ?? '',
-    type: t.account?.account_type === 'income' ? 'in' : 'out',
+    // Nama sumber uang: nama account untuk saluran, nama fund untuk dana.
+    account: t.account?.account_name ?? t.fund?.fund_name ?? '',
+    // Dana selalu pengeluaran; saluran mengikuti account_type miliknya.
+    type: t.fund ? 'out' : t.account?.account_type === 'income' ? 'in' : 'out',
     amount: fmtNum(t.amount),
     date: fmtDate(t.transaction_date),
   }))
@@ -146,25 +210,25 @@ async function fetchLedger() {
     })
 }
 
-/* ---------- allocations ---------- */
+/* ---------- alokasi ---------- */
 
 async function fetchAllocations() {
   const [al, use] = await Promise.all([
     supabase
       .from('allocation')
-      .select('id, amount, periode:periode_id(periode_month, periode_year), account:account_id(account_name)'),
+      .select('id, amount, periode:periode_id(periode_month, periode_year), fund:fund_id(fund_name)'),
     supabase.from('allocation_usage').select('allocation_id, used'),
   ])
   check(al.error)
   check(use.error)
   const used = new Map((use.data ?? []).map((u) => [u.allocation_id, Number(u.used)]))
   return (al.data ?? [])
-    .filter((a) => a.periode && a.account)
+    .filter((a) => a.periode && a.fund)
     .sort(
       (a, b) =>
         b.periode.periode_year - a.periode.periode_year ||
         monthOrder(b.periode.periode_month) - monthOrder(a.periode.periode_month) ||
-        a.account.account_name.localeCompare(b.account.account_name),
+        a.fund.fund_name.localeCompare(b.fund.fund_name),
     )
     .map((a) => {
       const amount = Number(a.amount)
@@ -172,7 +236,7 @@ async function fetchAllocations() {
       return {
         id: a.id,
         period: `${a.periode.periode_month} ${a.periode.periode_year}`,
-        account: a.account.account_name,
+        account: a.fund.fund_name,
         amount: fmtNum(amount),
         used: fmtNum(u),
         pct: amount > 0 ? `${Math.round((u / amount) * 100)}%` : '-',
@@ -180,41 +244,57 @@ async function fetchAllocations() {
     })
 }
 
-/** Real balance of each bank ({ savings, spending }), from the bank_balance view. */
+/** Saldo riil tiap bank ({ savings, spending }), dari view bank_balance. */
 export async function fetchBanks() {
   const { data, error } = await supabase.from('bank_balance').select('bank, balance')
   check(error)
   return Object.fromEntries((data ?? []).map((b) => [b.bank, Number(b.balance)]))
 }
 
-/** All five lists, in the same order as LISTS in lists.jsx. */
+/** Ketujuh daftar, urutannya sama dengan LISTS di lists.jsx. */
 export async function fetchAll() {
-  return Promise.all([fetchTransactions(), fetchAccounts(), fetchLedger(), fetchPeriods(), fetchAllocations()])
+  return Promise.all([
+    fetchTransactions(),
+    fetchAccounts(),
+    fetchLedger(),
+    fetchPeriods(),
+    fetchAllocations(),
+    fetchFunds(),
+    fetchCategories(),
+  ])
 }
 
-/* ---------- saving ---------- */
+/* ---------- penyimpanan ---------- */
 
 const text = (v) => String(v ?? '').trim()
 
-async function saveTransaction(d, accounts, id) {
+async function saveTransaction(d, ctx, id) {
   need(text(d.name), 'Name is required.')
-  const account = accounts.find((a) => a.name === d.account)
-  need(account, 'Pick an account first (add one on the Accounts list if there are none).')
+  // Sumber uang dicari berdasarkan nama di kedua tabel; nama tidak boleh bentrok
+  // antar account dan fund (diperiksa saat menyimpan account/fund).
+  const fund = (ctx.funds ?? []).find((f) => f.name === d.account)
+  const account = fund ? null : (ctx.accounts ?? []).find((a) => a.name === d.account)
+  need(fund || account, 'Pick an account or fund first (add one on the Accounts or Funds list if there are none).')
   const amount = parseNum(d.amount)
   need(amount !== null && amount > 0, 'Amount must be a number greater than 0.')
   const date = parseDate(d.date)
   need(date, 'Date must look like 28 Oct 2026 or 2026-10-28.')
+  const category = text(d.category)
+    ? (ctx.categories ?? []).find((c) => c.name === text(d.category))
+    : null
+  need(!text(d.category) || category, 'Pick a category from the Category list (or leave it empty).')
 
   const row = {
     transaction_name: text(d.name),
-    transaction_category: text(d.category) || null,
+    category_id: category?.id ?? null,
     amount,
     transaction_date: date,
-    account_id: account.id,
+    account_id: account?.id ?? null,
+    fund_id: fund?.id ?? null,
     periode_id: await periodIdFor(date),
     transaction_status: d.status === 'planned' ? 'planned' : 'completed',
   }
-  // is_planned means "budgeted in advance": set when planned, kept when the row is later marked done.
+  // is_planned berarti "dianggarkan lebih dulu": diset saat planned, dipertahankan saat ditandai selesai.
   if (d.status === 'planned') row.is_planned = true
   const { error } = id
     ? await supabase.from('transaction').update(row).eq('id', id)
@@ -222,24 +302,56 @@ async function saveTransaction(d, accounts, id) {
   check(error)
 }
 
-async function saveAccount(d, id) {
+async function saveAccount(d, ctx, id) {
   need(text(d.name), 'Name is required.')
-  const bank = text(d.bank).toLowerCase()
-  const isFund = d.role === 'Fund' || d.role === 'Ledger fund'
-  need(!isFund || bank, 'A fund needs a bank (Savings or Spending).')
-  const opening = text(d.opening) === '' ? 0 : parseNum(d.opening)
-  need(opening !== null, 'Opening must be a number.')
+  need(
+    !(ctx.funds ?? []).some((f) => f.name === text(d.name) && f.id !== id),
+    'A fund already uses this name. Names must be unique across accounts and funds.',
+  )
+  const feeds = text(d.feeds) ? (ctx.funds ?? []).find((f) => f.name === text(d.feeds)) : null
+  need(!text(d.feeds) || feeds, 'Pick a fund for Feeds (or leave it empty).')
   const row = {
     account_name: text(d.name),
     account_type: d.type === 'in' ? 'income' : 'outcome',
-    bank: bank || null,
-    is_fund: isFund,
-    is_ledger_source: d.role === 'Ledger fund',
-    opening_balance: opening,
+    bank: text(d.bank).toLowerCase() || null,
+    feeds_fund_id: feeds?.id ?? null,
+    // is_system tidak diubah dari UI: akun sistem dibuat lewat migrasi/job.
   }
   const { error } = id
     ? await supabase.from('account').update(row).eq('id', id)
     : await supabase.from('account').insert(row)
+  check(error)
+}
+
+async function saveFund(d, ctx, id) {
+  need(text(d.name), 'Name is required.')
+  need(
+    !(ctx.accounts ?? []).some((a) => a.name === text(d.name) && a.id !== id),
+    'An account already uses this name. Names must be unique across accounts and funds.',
+  )
+  const bank = text(d.bank).toLowerCase()
+  need(bank, 'A fund needs a bank (Savings or Spending).')
+  const opening = text(d.opening) === '' ? 0 : parseNum(d.opening)
+  need(opening !== null, 'Opening must be a number.')
+  const row = {
+    fund_name: text(d.name),
+    bank,
+    is_ledger_source: d.role === 'Ledger fund',
+    opening_balance: opening,
+  }
+  const { error } = id
+    ? await supabase.from('fund').update(row).eq('id', id)
+    : await supabase.from('fund').insert(row)
+  check(error)
+}
+
+async function saveCategory(d, original, id) {
+  need(text(d.name), 'Name is required.')
+  need(!original?.system, 'System categories cannot be changed.')
+  const row = { name: text(d.name) }
+  const { error } = id
+    ? await supabase.from('category').update(row).eq('id', id)
+    : await supabase.from('category').insert(row)
   check(error)
 }
 
@@ -268,20 +380,21 @@ async function saveLedger(d, original) {
     return
   }
 
-  // A ledger entry belongs to a transaction, so a new one creates both.
-  // The transaction is spent from the savings fund (the ledger source account).
-  const src = await supabase.from('account').select('id').eq('is_ledger_source', true).limit(1).maybeSingle()
+  // Entri ledger selalu milik sebuah transaksi, jadi entri baru membuat keduanya.
+  // Transaksinya dibelanjakan dari dana sumber ledger (Saving Funds).
+  const src = await supabase.from('fund').select('id').eq('is_ledger_source', true).limit(1).maybeSingle()
   check(src.error)
-  need(src.data, 'No ledger source account found (set is_ledger_source on Saving Funds).')
+  need(src.data, 'No ledger source fund found (set is_ledger_source on Saving Funds).')
   const t = await supabase
     .from('transaction')
     .insert({
       transaction_name: text(d.name),
-      transaction_category: 'Ledger',
+      category_id: await ensureCategoryId('Ledger'),
       amount,
       transaction_date: date,
       transaction_status: 'completed',
-      account_id: src.data.id,
+      account_id: null,
+      fund_id: src.data.id,
       periode_id,
     })
     .select('id')
@@ -310,35 +423,39 @@ async function savePeriod(d, id) {
   check(error)
 }
 
-async function saveAllocation(d, accounts, id) {
+async function saveAllocation(d, ctx, id) {
   const p = parsePeriod(d.period)
   need(p, 'Period must look like October 2026.')
-  const account = accounts.find((a) => a.name === d.account && a.isFund)
-  need(account, 'Pick a fund first (set an account to Fund on the Accounts list).')
+  const fund = (ctx.funds ?? []).find((f) => f.name === d.account)
+  need(fund, 'Pick a fund first (add one on the Funds list if there are none).')
   const amount = parseNum(d.amount)
   need(amount !== null && amount >= 0, 'Amount must be a number, 0 or more.')
-  const row = { periode_id: await ensurePeriod(p.month, p.year), account_id: account.id, amount }
-  // One allocation per fund per period: adding again just replaces the amount.
+  const row = { periode_id: await ensurePeriod(p.month, p.year), fund_id: fund.id, amount }
+  // Satu alokasi per dana per periode: menambah lagi berarti mengganti nominalnya.
   const { error } = id
     ? await supabase.from('allocation').update(row).eq('id', id)
-    : await supabase.from('allocation').upsert(row, { onConflict: 'periode_id,account_id' })
+    : await supabase.from('allocation').upsert(row, { onConflict: 'periode_id,fund_id' })
   check(error)
 }
 
 /**
- * Saves one UI row. `original` is the existing row when editing, null when adding.
- * `accounts` are the current account rows (used to resolve the account name to its id).
+ * Menyimpan satu baris UI. `original` adalah baris lama saat mengedit, null saat menambah.
+ * `ctx` berisi { accounts, funds, categories } untuk mencocokkan nama ke id antar tabel.
  */
-export async function saveRow(list, draft, original, accounts) {
+export async function saveRow(list, draft, original, ctx) {
   const id = original?.id
-  if (list === 0) return saveTransaction(draft, accounts, id)
-  if (list === 1) return saveAccount(draft, id)
+  if (list === 0) return saveTransaction(draft, ctx, id)
+  if (list === 1) return saveAccount(draft, ctx, id)
   if (list === 2) return saveLedger(draft, original)
-  if (list === 4) return saveAllocation(draft, accounts, id)
+  if (list === 4) return saveAllocation(draft, ctx, id)
+  if (list === 5) return saveFund(draft, ctx, id)
+  if (list === 6) return saveCategory(draft, original, id)
   return savePeriod(draft, id)
 }
 
-const TABLES = ['transaction', 'account', 'ledger', 'periode', 'allocation']
+/* ---------- penghapusan ---------- */
+
+const TABLES = ['transaction', 'account', 'ledger', 'periode', 'allocation', 'fund', 'category']
 
 export async function removeRow(list, row) {
   const { error } = await supabase.from(TABLES[list]).delete().eq('id', row.id)

@@ -10,6 +10,9 @@ const TABS = [
   { label: 'Ledger', word: 'LIST', list: 2 },
   { label: 'Period', word: 'LIST', list: 3 },
   { label: 'Allocation', word: 'PLAN', list: 4 },
+  // Tab baru sejak pemisahan skema (fund & category): indeks mengikuti urutan LISTS.
+  { label: 'Funds', word: 'FUND', list: 5 },
+  { label: 'Categories', word: 'TAGS', list: 6 },
 ]
 
 const BLUE_A = [[0, 0], [770, 0], [1045, 90], [975, 0], [1220, 0], [1365, 195], [1295, 437]]
