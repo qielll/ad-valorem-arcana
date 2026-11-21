@@ -71,7 +71,7 @@ save-a-money-menu/
     │   └── TrendArrow.jsx     # Blue income / red outcome arrow icon
     └── screens/
         ├── Login.jsx          # Email + password sign-in
-        ├── MainMenu.jsx       # "Money Management" menu with six tabs
+        ├── MainMenu.jsx       # "Money Management" menu with seven tabs
         ├── ActionScreen.jsx   # "What to do with these data?" page
         └── ListScreen.jsx     # "Save a Money!" list page with inline editing
 ```
@@ -145,7 +145,7 @@ flowchart LR
 - `App.jsx` shows `Login` until there is a session, then the app. It holds `screen` (`'main' | 'action' | 'list'`), `tab`, `list` (index into `LISTS`: 0 Transaction, 1 Account, 2 Ledger, 3 Period, 4 Allocation, 5 Fund, 6 Category) and `store`.
 - `store[i]` holds the rows of `LISTS[i]`, loaded by `fetchAll()`. `banks` holds the real bank balances from `fetchBanks()`. Both reload after every save or delete.
 - ◀ ▶ on the list screen change `list`, so going back opens the action screen for whichever section was last shown.
-- The **Main** tab has no screen and does nothing when chosen.
+- There is no **Main** tab anymore (removed 2026-11-21 because it opened nothing); the first tab is Transaction.
 - The main menu also has an **Effects: Full/Lite** toggle (saved in `localStorage`; it defaults to Lite when the OS asks for reduced motion) and **Sign out**.
 
 ### URL shortcuts (development aid)

@@ -4,7 +4,7 @@ import Shape from '../components/Shape.jsx'
 import ImageSlot from '../components/ImageSlot.jsx'
 
 const TABS = [
-  { label: 'Main', word: 'MENU', list: null },
+  // Tab "Main" (kata MENU) dihapus: tidak membuka apa pun (list null), hanya membingungkan.
   { label: 'Transaction', word: 'LOGS', list: 0 },
   { label: 'Accounts', word: 'MENU', list: 1 },
   { label: 'Ledger', word: 'LIST', list: 2 },

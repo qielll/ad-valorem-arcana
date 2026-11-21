@@ -11,9 +11,11 @@ export default function RpBox({ className = '', banks = null }) {
     >
       <span className="fs-48">Rp</span>
       <span className="fs-52 ls-3">{show(total)}</span>
-      <div className="absolute right-0 top-full flex h-38 w-full items-center justify-between bg-paper2 pl-28 pr-44 fs-24 font-bold text-ink">
-        <span>Spending {show(banks?.spending)}</span>
-        <span>Savings {show(banks?.savings)}</span>
+      {/* Strip saldo per bank: font diperkecil + nowrap supaya label dan angka selalu
+          sebaris dan tidak terpotong oleh tinggi strip yang tetap (h-38). */}
+      <div className="absolute right-0 top-full flex h-38 w-full items-center justify-between bg-paper2 pl-28 pr-28 fs-20 lh-24 font-bold text-ink">
+        <span className="whitespace-nowrap">Spending {show(banks?.spending)}</span>
+        <span className="whitespace-nowrap">Savings {show(banks?.savings)}</span>
       </div>
     </div>
   )
