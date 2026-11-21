@@ -86,13 +86,13 @@ const answerCallback = (id: string, text?: string) =>
   tg("answerCallbackQuery", { callback_query_id: id, ...(text ? { text } : {}) });
 
 const cancelButton: TgKeyboard = {
-  inline_keyboard: [[{ text: "❌ Batal", callback_data: "flow:cancel" }]],
+  inline_keyboard: [[{ text: "❌ Cancel", callback_data: "flow:cancel" }]],
 };
 
 const menuKeyboard: TgKeyboard = {
   inline_keyboard: [
-    [{ text: "➕ Catat Transaksi", callback_data: "menu:catat" }],
-    [{ text: "💰 Lihat Saldo", callback_data: "menu:saldo" }],
+    [{ text: "➕ Add Transaction", callback_data: "menu:catat" }],
+    [{ text: "💰 View Balances", callback_data: "menu:saldo" }],
   ],
 };
 
@@ -144,8 +144,8 @@ async function categoryKeyboard(): Promise<TgKeyboard> {
   const rows: TgButton[][] = (data ?? []).map((c) => [
     { text: c.name as string, callback_data: `cat:${c.id}` },
   ]);
-  rows.push([{ text: "⏭️ Tanpa kategori", callback_data: "cat:none" }]);
-  rows.push([{ text: "❌ Batal", callback_data: "flow:cancel" }]);
+  rows.push([{ text: "⏭️ No category", callback_data: "cat:none" }]);
+  rows.push([{ text: "❌ Cancel", callback_data: "flow:cancel" }]);
   return { inline_keyboard: rows };
 }
 
@@ -167,7 +167,7 @@ async function sourceKeyboard(): Promise<TgKeyboard> {
   for (const a of acc.data ?? []) {
     rows.push([{ text: `🏦 ${a.account_name}`, callback_data: `src:acc:${a.id}` }]);
   }
-  rows.push([{ text: "❌ Batal", callback_data: "flow:cancel" }]);
+  rows.push([{ text: "❌ Cancel", callback_data: "flow:cancel" }]);
   return { inline_keyboard: rows };
 }
 
@@ -197,17 +197,17 @@ async function balancesText(): Promise<string> {
   if (funds.error) throw new Error(funds.error.message);
   const bankMap = new Map((banks.data ?? []).map((b) => [b.bank as string, Number(b.balance)]));
   const lines = [
-    "💰 Saldo bank:",
+    "💰 Bank balances:",
     `• Spending: ${formatRupiah(bankMap.get("spending") ?? 0)}`,
     `• Savings: ${formatRupiah(bankMap.get("savings") ?? 0)}`,
     "",
-    "🗂️ Saldo dana:",
+    "🗂️ Fund balances:",
   ];
   for (const f of funds.data ?? []) {
     const rec = f as unknown as Record<string, number> & { fund_name: string };
     const balance = fundBalanceOf(rec);
     const free = balance - Number(rec.planned);
-    lines.push(`• ${rec.fund_name}: ${formatRupiah(balance)} (bebas ${formatRupiah(free)})`);
+    lines.push(`• ${rec.fund_name}: ${formatRupiah(balance)} (free ${formatRupiah(free)})`);
   }
   return lines.join("\n");
 }
@@ -222,7 +222,7 @@ async function fundBalanceText(fundId: string): Promise<string | null> {
   const rec = data as unknown as Record<string, number> & { fund_name: string };
   const balance = fundBalanceOf(rec);
   const free = balance - Number(rec.planned);
-  return `Saldo ${rec.fund_name} sekarang: ${formatRupiah(balance)} (bebas ${formatRupiah(free)})`;
+  return `${rec.fund_name} balance now: ${formatRupiah(balance)} (free ${formatRupiah(free)})`;
 }
 
 /* ---------------- Simpan transaksi (port dari saveTransaction di web) ---------------- */
@@ -250,10 +250,10 @@ async function ensurePeriodId(iso: string): Promise<string> {
 
 async function insertTransaction(d: TxDraft): Promise<string> {
   // Validasi yang sama dengan web: nama wajib, sumber wajib, nominal > 0, tanggal valid.
-  if (!d.name?.trim()) throw new Error("Nama transaksi kosong.");
-  if (!d.sourceId || !d.sourceKind) throw new Error("Sumber dana belum dipilih.");
-  if (d.amount === undefined || !(d.amount > 0)) throw new Error("Nominal harus lebih dari 0.");
-  if (!d.date) throw new Error("Tanggal belum diisi.");
+  if (!d.name?.trim()) throw new Error("The transaction name is empty.");
+  if (!d.sourceId || !d.sourceKind) throw new Error("No source has been selected.");
+  if (d.amount === undefined || !(d.amount > 0)) throw new Error("The amount must be greater than 0.");
+  if (!d.date) throw new Error("The date has not been set.");
 
   const row = {
     transaction_name: d.name.trim(),
@@ -275,26 +275,26 @@ async function insertTransaction(d: TxDraft): Promise<string> {
 
 async function startFlow(chatId: number, userId: number): Promise<void> {
   await setSession(chatId, userId, { step: "name", draft: {} });
-  await send(chatId, "➕ Catat transaksi baru.\n\nNama transaksinya apa?\n(contoh: Makan siang)", cancelButton);
+  await send(chatId, "➕ New transaction.\n\nWhat's the transaction name?\n(e.g. Lunch)", cancelButton);
 }
 
 async function askCategory(chatId: number, userId: number, draft: TxDraft): Promise<void> {
   await setSession(chatId, userId, { step: "category", draft });
-  await send(chatId, "Pilih kategori:", await categoryKeyboard());
+  await send(chatId, "Choose a category:", await categoryKeyboard());
 }
 
 async function askSource(chatId: number, userId: number, draft: TxDraft): Promise<void> {
   await setSession(chatId, userId, { step: "source", draft });
-  await send(chatId, "Uangnya dari mana? (fund atau account)", await sourceKeyboard());
+  await send(chatId, "Where did the money come from? (a fund or an account)", await sourceKeyboard());
 }
 
 async function askStatus(chatId: number, userId: number, draft: TxDraft): Promise<void> {
   await setSession(chatId, userId, { step: "status", draft });
-  await send(chatId, "Status transaksi:", {
+  await send(chatId, "Transaction status:", {
     inline_keyboard: [
-      [{ text: "✅ Done — sudah terjadi", callback_data: "st:completed" }],
-      [{ text: "🕓 Planned — direncanakan", callback_data: "st:planned" }],
-      [{ text: "❌ Batal", callback_data: "flow:cancel" }],
+      [{ text: "✅ Done — already happened", callback_data: "st:completed" }],
+      [{ text: "🕓 Planned — not yet spent", callback_data: "st:planned" }],
+      [{ text: "❌ Cancel", callback_data: "flow:cancel" }],
     ],
   });
 }
@@ -303,12 +303,12 @@ async function askDate(chatId: number, userId: number, draft: TxDraft): Promise<
   await setSession(chatId, userId, { step: "date", draft });
   await send(
     chatId,
-    `Tanggal transaksi? Ketik tanggal (contoh: ${fmtDateId(todayISOJakarta())}, 21/11/2026, atau 2026-11-21), atau tap:`,
+    `Transaction date? Type a date (e.g. ${fmtDateId(todayISOJakarta())}, 21/11/2026, or 2026-11-21), or tap:`,
     {
       inline_keyboard: [
-        [{ text: "📅 Hari ini", callback_data: "dt:today" }],
-        [{ text: "⏪ Kemarin", callback_data: "dt:yesterday" }],
-        [{ text: "❌ Batal", callback_data: "flow:cancel" }],
+        [{ text: "📅 Today", callback_data: "dt:today" }],
+        [{ text: "⏪ Yesterday", callback_data: "dt:yesterday" }],
+        [{ text: "❌ Cancel", callback_data: "flow:cancel" }],
       ],
     },
   );
@@ -316,15 +316,15 @@ async function askDate(chatId: number, userId: number, draft: TxDraft): Promise<
 
 async function askAmount(chatId: number, userId: number, draft: TxDraft): Promise<void> {
   await setSession(chatId, userId, { step: "amount", draft });
-  await send(chatId, "Berapa nominalnya?\n(contoh: 25000, 25.000, 25rb, 1,5jt)", cancelButton);
+  await send(chatId, "How much is the amount?\n(e.g. 25000, 25.000, 25rb, 1,5jt)", cancelButton);
 }
 
 async function askConfirm(chatId: number, userId: number, draft: TxDraft): Promise<void> {
   await setSession(chatId, userId, { step: "confirm", draft });
-  await send(chatId, `Periksa dulu sebelum disimpan:\n\n${summaryLines(draft).join("\n")}`, {
+  await send(chatId, `Please check before saving:\n\n${summaryLines(draft).join("\n")}`, {
     inline_keyboard: [
-      [{ text: "✅ Simpan", callback_data: "cf:save" }],
-      [{ text: "❌ Batal", callback_data: "cf:cancel" }],
+      [{ text: "✅ Save", callback_data: "cf:save" }],
+      [{ text: "❌ Cancel", callback_data: "cf:cancel" }],
     ],
   });
 }
@@ -335,25 +335,25 @@ async function doSave(chatId: number, userId: number, session: Session): Promise
   try {
     const txId = await insertTransaction(session.draft);
     await clearSession(chatId);
-    let text = `✅ Tersimpan!\n\n${summaryLines(session.draft).join("\n")}`;
+    let text = `✅ Saved!\n\n${summaryLines(session.draft).join("\n")}`;
     if (session.draft.sourceKind === "fund" && session.draft.sourceId) {
       const bal = await fundBalanceText(session.draft.sourceId);
       if (bal) text += `\n\n${bal}`;
     }
     await send(chatId, text, {
       inline_keyboard: [
-        [{ text: "↩️ Undo (hapus transaksi ini)", callback_data: `undo:${txId}` }],
-        [{ text: "➕ Catat lagi", callback_data: "menu:catat" }],
-        [{ text: "💰 Lihat Saldo", callback_data: "menu:saldo" }],
+        [{ text: "↩️ Undo (delete this transaction)", callback_data: `undo:${txId}` }],
+        [{ text: "➕ Add another", callback_data: "menu:catat" }],
+        [{ text: "💰 View Balances", callback_data: "menu:saldo" }],
       ],
     });
   } catch (e) {
     // Gagal simpan: kembalikan ke langkah konfirmasi supaya bisa dicoba lagi.
     await setSession(chatId, userId, { step: "confirm", draft: session.draft });
-    await send(chatId, `⚠️ Gagal menyimpan: ${e instanceof Error ? e.message : String(e)}\nDraft tidak hilang — tap Simpan untuk mencoba lagi, atau Batal.`, {
+    await send(chatId, `⚠️ Failed to save: ${e instanceof Error ? e.message : String(e)}\nYour draft is safe — tap Save to try again, or Cancel.`, {
       inline_keyboard: [
-        [{ text: "✅ Simpan", callback_data: "cf:save" }],
-        [{ text: "❌ Batal", callback_data: "cf:cancel" }],
+        [{ text: "✅ Save", callback_data: "cf:save" }],
+        [{ text: "❌ Cancel", callback_data: "cf:cancel" }],
       ],
     });
   }
@@ -379,30 +379,30 @@ async function handleMessage(msg: TgMessage): Promise<void> {
   if (!isAllowed(userId)) {
     await send(
       chatId,
-      `⛔ Bot ini privat dan ID Telegram kamu (${userId}) tidak ada di daftar izin.`,
+      `⛔ This bot is private, and your Telegram ID (${userId}) is not on the allowlist.`,
     );
     return;
   }
 
   // Perintah selalu tersedia, juga di tengah alur.
   if (text === "/start" || text === "/menu") {
-    await send(chatId, "Halo! Aku bot pencatat Ad Valorem. Mau apa?", menuKeyboard);
+    await send(chatId, "Hi! I'm the Ad Valorem recording bot. What would you like to do?", menuKeyboard);
     return;
   }
-  if (text === "/catat") return startFlow(chatId, userId);
-  if (text === "/saldo") {
+  if (text === "/catat" || text === "/add") return startFlow(chatId, userId);
+  if (text === "/saldo" || text === "/balance") {
     await send(chatId, await balancesText(), menuKeyboard);
     return;
   }
-  if (text === "/batal") {
+  if (text === "/batal" || text === "/cancel") {
     await clearSession(chatId);
-    await send(chatId, "Alur dibatalkan.", menuKeyboard);
+    await send(chatId, "Flow cancelled.", menuKeyboard);
     return;
   }
   if (text === "/help") {
     await send(
       chatId,
-      "Perintah:\n/catat — catat transaksi baru\n/saldo — lihat saldo bank & dana\n/batal — batalkan alur yang sedang berjalan\n\nSaat diminta nominal, format seperti 25.000, 25rb, atau 1,5jt diterima. Saat diminta tanggal, contoh: 21 Nov 2026, 21/11/2026, 2026-11-21.",
+      "Commands:\n/catat or /add — record a new transaction\n/saldo or /balance — view bank & fund balances\n/batal or /cancel — cancel the flow in progress\n\nFor amounts, formats like 25.000, 25rb, or 1,5jt are accepted. For dates, e.g. 21 Nov 2026, 21/11/2026, 2026-11-21.",
       menuKeyboard,
     );
     return;
@@ -410,14 +410,14 @@ async function handleMessage(msg: TgMessage): Promise<void> {
 
   const session = await getSession(chatId);
   if (!session) {
-    await send(chatId, "Tidak ada alur yang berjalan. Tap Catat Transaksi untuk mulai.", menuKeyboard);
+    await send(chatId, "No flow is running. Tap Add Transaction to start.", menuKeyboard);
     return;
   }
 
   switch (session.step) {
     case "name": {
       if (!text) {
-        await send(chatId, "Nama tidak boleh kosong. Nama transaksinya apa?", cancelButton);
+        await send(chatId, "The name can't be empty. What's the transaction name?", cancelButton);
         return;
       }
       session.draft.name = text;
@@ -427,7 +427,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     case "date": {
       const iso = parseDateId(text);
       if (!iso) {
-        await send(chatId, "Format tanggalnya belum dikenali. Contoh: 21 Nov 2026, 21/11/2026, atau 2026-11-21.", cancelButton);
+        await send(chatId, "That date format isn't recognized. Examples: 21 Nov 2026, 21/11/2026, or 2026-11-21.", cancelButton);
         return;
       }
       session.draft.date = iso;
@@ -437,7 +437,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     case "amount": {
       const amount = parseAmountId(text);
       if (amount === null || amount <= 0) {
-        await send(chatId, "Nominalnya belum valid — harus angka lebih dari 0. Contoh: 25000, 25.000, 25rb, 1,5jt.", cancelButton);
+        await send(chatId, "That amount isn't valid — it must be a number greater than 0. Examples: 25000, 25.000, 25rb, 1,5jt.", cancelButton);
         return;
       }
       session.draft.amount = amount;
@@ -447,15 +447,15 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     case "category":
     case "source":
     case "status": {
-      await send(chatId, "Tap salah satu tombol di atas ya — atau /batal untuk berhenti.", cancelButton);
+      await send(chatId, "Please tap one of the buttons above — or send /cancel to stop.", cancelButton);
       return;
     }
     case "confirm": {
-      await send(chatId, "Tap ✅ Simpan untuk menyimpan, atau ❌ Batal.");
+      await send(chatId, "Tap ✅ Save to save, or ❌ Cancel.");
       return;
     }
     case "saving": {
-      await send(chatId, "Sedang menyimpan, tunggu sebentar…");
+      await send(chatId, "Saving, please wait…");
       return;
     }
   }
@@ -468,7 +468,7 @@ async function handleCallback(cb: TgCallback): Promise<void> {
   if (!chatId) return;
 
   if (!isAllowed(userId)) {
-    await answerCallback(cb.id, "Tidak diizinkan.");
+    await answerCallback(cb.id, "Not authorized.");
     return;
   }
   await answerCallback(cb.id);
@@ -480,7 +480,7 @@ async function handleCallback(cb: TgCallback): Promise<void> {
   }
   if (data === "flow:cancel" || data === "cf:cancel") {
     await clearSession(chatId);
-    await send(chatId, "Dibatalkan.", menuKeyboard);
+    await send(chatId, "Cancelled.", menuKeyboard);
     return;
   }
   if (data.startsWith("undo:")) {
@@ -488,7 +488,7 @@ async function handleCallback(cb: TgCallback): Promise<void> {
     const { error } = await supabase.from("transaction").delete().eq("id", txId);
     await send(
       chatId,
-      error ? `⚠️ Gagal menghapus: ${error.message}` : "↩️ Transaksi sudah dihapus (undo berhasil).",
+      error ? `⚠️ Failed to delete: ${error.message}` : "↩️ Transaction deleted (undo successful).",
       menuKeyboard,
     );
     return;
@@ -496,7 +496,7 @@ async function handleCallback(cb: TgCallback): Promise<void> {
 
   const session = await getSession(chatId);
   if (!session) {
-    await send(chatId, "Sesi sudah kedaluwarsa. Mulai lagi yuk.", menuKeyboard);
+    await send(chatId, "The session has expired. Let's start over.", menuKeyboard);
     return;
   }
 
@@ -512,7 +512,7 @@ async function handleCallback(cb: TgCallback): Promise<void> {
         .eq("id", id)
         .maybeSingle();
       if (error || !cat) {
-        await send(chatId, "Kategori tidak ditemukan. Coba lagi.", await categoryKeyboard());
+        await send(chatId, "Category not found. Try again.", await categoryKeyboard());
         return;
       }
       session.draft.categoryId = cat.id as string;
@@ -527,7 +527,7 @@ async function handleCallback(cb: TgCallback): Promise<void> {
     if ((kind !== "fund" && kind !== "acc") || !id) return;
     const name = await sourceName(kind === "fund" ? "fund" : "account", id);
     if (!name) {
-      await send(chatId, "Sumber tidak ditemukan. Coba lagi.", await sourceKeyboard());
+      await send(chatId, "Source not found. Try again.", await sourceKeyboard());
       return;
     }
     session.draft.sourceKind = kind === "fund" ? "fund" : "account";
@@ -559,11 +559,11 @@ async function handleCallback(cb: TgCallback): Promise<void> {
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
-    return new Response("Ad Valorem Telegram bot — webhook aktif.", { status: 200 });
+    return new Response("Ad Valorem Telegram bot — webhook is active.", { status: 200 });
   }
   if (!BOT_TOKEN || !ALLOWED_USER_ID) {
     console.error("Secrets TELEGRAM_BOT_TOKEN / TELEGRAM_ALLOWED_USER_ID belum di-set.");
-    return new Response("Konfigurasi bot belum lengkap.", { status: 500 });
+    return new Response("Bot configuration is incomplete.", { status: 500 });
   }
   if (WEBHOOK_SECRET && req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) {
     return new Response("Unauthorized", { status: 401 });

@@ -161,12 +161,12 @@ export interface TxDraft {
 /** Baris-baris ringkasan draf, dipakai di layar konfirmasi dan pesan sukses. */
 export function summaryLines(d: TxDraft): string[] {
   const lines = [
-    `Nama: ${d.name ?? "-"}`,
-    `Kategori: ${d.categoryName ?? "(tanpa kategori)"}`,
-    `Sumber: ${d.sourceName ?? "-"}`,
-    `Status: ${d.status === "planned" ? "Planned (direncanakan)" : "Done (selesai)"}`,
-    `Tanggal: ${d.date ? fmtDateId(d.date) : "-"}`,
-    `Nominal: ${d.amount !== undefined ? formatRupiah(d.amount) : "-"}`,
+    `Name: ${d.name ?? "-"}`,
+    `Category: ${d.categoryName ?? "(no category)"}`,
+    `Source: ${d.sourceName ?? "-"}`,
+    `Status: ${d.status === "planned" ? "Planned" : "Done"}`,
+    `Date: ${d.date ? fmtDateId(d.date) : "-"}`,
+    `Amount: ${d.amount !== undefined ? formatRupiah(d.amount) : "-"}`,
   ];
   return lines;
 }

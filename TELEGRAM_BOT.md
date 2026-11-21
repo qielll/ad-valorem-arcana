@@ -1,99 +1,106 @@
-# Bot Telegram Ad Valorem
+# Ad Valorem Telegram Bot
 
-Bot Telegram pribadi untuk mencatat transaksi Ad Valorem langsung dari chat,
-tanpa membuka aplikasi web. Bot memanggil **Supabase Edge Function**
-(`supabase/functions/telegram-bot/`) sebagai webhook, dan fungsi itu menulis ke
-tabel yang sama dengan aplikasi web memakai *service role key*.
+A personal Telegram bot for recording Ad Valorem transactions straight from
+chat, without opening the web app. The bot calls a **Supabase Edge Function**
+(`supabase/functions/telegram-bot/`) as its webhook, and that function writes
+to the same tables as the web app using the *service role key*.
 
-Alur pencatatannya meniru persis formulir **Transaction** di web:
+The recording flow mirrors the web **Transaction** form exactly:
 
 ```
-Nama -> Kategori (opsional) -> Sumber (fund / account) -> Status -> Tanggal -> Nominal -> Konfirmasi -> Tersimpan
+Name -> Category (optional) -> Source (fund / account) -> Status -> Date -> Amount -> Confirmation -> Saved
 ```
 
-Setelah tersimpan, bot membalas ringkasan + saldo fund yang dipakai, dan ada
-tombol **Undo** untuk menghapus transaksi yang baru saja dibuat.
+After saving, the bot replies with a summary plus the balance of the fund
+used, and an **Undo** button to delete the transaction you just created.
 
-Perintah yang tersedia:
+Available commands (Indonesian commands keep working; English aliases were
+added alongside them):
 
-| Perintah | Fungsi |
+| Command | What it does |
 |---|---|
-| `/start` | Tampilkan menu (Catat Transaksi / Lihat Saldo) |
-| `/catat` | Mulai alur pencatatan |
-| `/saldo` | Saldo bank (Spending/Savings) dan saldo semua fund |
-| `/batal` | Batalkan alur yang sedang berjalan |
-| `/help` | Bantuan format nominal & tanggal |
+| `/start` | Show the menu (Add Transaction / View Balances) |
+| `/catat` or `/add` | Start the recording flow |
+| `/saldo` or `/balance` | Bank balances (Spending/Savings) and all fund balances |
+| `/batal` or `/cancel` | Cancel the flow in progress |
+| `/help` | Help on amount & date formats |
 
-Format yang diterima bot (disesuaikan untuk Indonesia — parser web sedikit berbeda):
+Formats the bot accepts (tuned for Indonesia — the web parser differs slightly):
 
-- **Nominal:** `25000`, `25.000`, `1.250.000`, `25,5`, `25rb`, `150ribu`, `1,5jt`
-- **Tanggal:** `21 Nov 2026`, `21 Oktober 2026`, `21/11/2026`, `2026-11-21`, atau tombol Hari ini / Kemarin
+- **Amounts:** `25000`, `25.000`, `1.250.000`, `25,5`, `25rb`, `150ribu`, `1,5jt`
+- **Dates:** `21 Nov 2026`, `21 Oktober 2026`, `21/11/2026`, `2026-11-21`, or the Today / Yesterday buttons. Typing `hari ini` or `kemarin` also still works.
 
-Catatan perilaku (sama seperti web):
+Behavior notes (same as the web):
 
-- Kategori dan account **sistem** (`Auto:*`, `Ledger`, Bank Interest, Bank Admin Fee) tidak ditawarkan — itu diisi job bulanan.
-- Transaksi berstatus **Planned** otomatis `is_planned = true`.
-- Baris `periode` dibuat otomatis dari tanggal transaksi bila belum ada (nama bulan Inggris, mengikuti web).
-- Menyimpan transaksi lewat bot **tidak** membuat baris ledger — sama seperti simpan transaksi di web. Entri ledger tetap alur terpisah.
-
----
-
-## Keamanan
-
-Fungsi ini memegang akses tulis penuh ke database (service role melewati RLS),
-jadi tiga lapis penjaga dipakai:
-
-1. **Webhook secret** — Telegram mengirim header `X-Telegram-Bot-Api-Secret-Token`; fungsi menolak (401) bila tidak cocok dengan `TELEGRAM_WEBHOOK_SECRET`.
-2. **Allowlist user** — hanya `TELEGRAM_ALLOWED_USER_ID` yang dilayani. User lain dibalas dengan pesan penolakan (yang menyebutkan ID mereka sendiri, untuk membantu setup).
-3. **Tabel sesi tertutup** — `telegram_session` memakai RLS tanpa policy; hanya service role yang bisa mengaksesnya.
-
-Token bot dan semua secret **tidak boleh** masuk repo — semuanya diatur lewat `supabase secrets set`.
+- System categories and accounts (`Auto:*`, `Ledger`, Bank Interest, Bank Admin Fee) are never offered — those are filled by the monthly job.
+- A **Planned** transaction automatically gets `is_planned = true`.
+- The `periode` row is created automatically from the transaction date if it doesn't exist yet (English month names, following the web).
+- Saving a transaction through the bot does **not** create a ledger row — same as saving a transaction on the web. Ledger entries remain a separate flow.
 
 ---
 
-## Langkah Aktivasi (satu kali, di mesin kamu)
+## Security
 
-### 1. Jalankan migrasi tabel sesi
+This function holds full write access to the database (the service role
+bypasses RLS), so three layers of protection are used:
 
-Terapkan `supabase/migrations/20261121000000_telegram_bot_session.sql` ke
-database live — tempel isinya di **SQL Editor** Supabase, atau `supabase db push`
-bila memakai CLI. (Migrasi ini hanya menambah tabel baru; tidak mengubah tabel lain.)
+1. **Webhook secret** — Telegram sends the `X-Telegram-Bot-Api-Secret-Token` header; the function rejects (401) anything that doesn't match `TELEGRAM_WEBHOOK_SECRET`.
+2. **User allowlist** — only `TELEGRAM_ALLOWED_USER_ID` is served. Anyone else gets a rejection message (which mentions their own ID, to help with setup).
+3. **Closed session table** — `telegram_session` has RLS enabled with no policies; only the service role can access it.
 
-### 2. Buat bot di BotFather
+The bot token and all secrets must **never** be committed to the repo — they
+are set exclusively via `supabase secrets set`.
 
-1. Chat ke [@BotFather](https://t.me/BotFather) -> `/newbot` -> ikuti prompt (nama + username bot).
-2. Simpan **token** yang diberikan (bentuknya `123456789:AA...`). Jangan bagikan ke siapa pun.
+---
 
-### 3. Cari ID Telegram kamu
+## Activation Steps (one time, on your machine)
 
-Chat ke [@userinfobot](https://t.me/userinfobot) — balasannya berisi ID numerik kamu.
+### 1. Run the session-table migration
 
-### 4. Deploy Edge Function
+Apply `supabase/migrations/20261121000000_telegram_bot_session.sql` to the
+live database — paste its contents into the Supabase **SQL Editor**, or use
+`supabase db push` if you use the CLI. (This migration only adds a new table;
+it doesn't change any existing table.)
 
-Dari folder repo (Supabase CLI, sudah `supabase link` ke project):
+### 2. Create the bot in BotFather
+
+1. Chat with [@BotFather](https://t.me/BotFather) -> `/newbot` -> follow the prompts (bot name + username).
+2. Save the **token** it gives you (it looks like `123456789:AA...`). Never share it with anyone.
+
+### 3. Find your Telegram ID
+
+Chat with [@userinfobot](https://t.me/userinfobot) — its reply contains your numeric ID.
+
+### 4. Deploy the Edge Function
+
+From the repo folder (Supabase CLI, already `supabase link`ed to the project):
 
 ```bash
 supabase functions deploy telegram-bot --no-verify-jwt
 ```
 
-Flag `--no-verify-jwt` **wajib**: Telegram tidak bisa mengirim JWT Supabase,
-jadi verifikasi JWT bawaan harus mati untuk fungsi ini (keamanan digantikan
-webhook secret + allowlist di atas).
+The `--no-verify-jwt` flag is **required**: Telegram cannot send a Supabase
+JWT, so the built-in JWT verification must be off for this function (security
+is provided by the webhook secret + allowlist above).
 
-### 5. Set secrets
+> **Already deployed the Indonesian version?** Just re-run this same deploy
+> command — it replaces the function code with the English-dialogue version.
+> No migration, secret, or webhook changes are needed.
+
+### 5. Set the secrets
 
 ```bash
-supabase secrets set TELEGRAM_BOT_TOKEN=<token dari BotFather>
-supabase secrets set TELEGRAM_ALLOWED_USER_ID=<ID numerik kamu>
-supabase secrets set TELEGRAM_WEBHOOK_SECRET=<string acak buatan sendiri, mis. hasil `openssl rand -hex 16`>
+supabase secrets set TELEGRAM_BOT_TOKEN=<token from BotFather>
+supabase secrets set TELEGRAM_ALLOWED_USER_ID=<your numeric ID>
+supabase secrets set TELEGRAM_WEBHOOK_SECRET=<a random string you invent, e.g. the output of `openssl rand -hex 16`>
 ```
 
-`SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` tidak perlu di-set — tersedia
-otomatis di runtime Edge Function.
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` don't need to be set — they
+are available automatically in the Edge Function runtime.
 
-### 6. Daftarkan webhook ke Telegram
+### 6. Register the webhook with Telegram
 
-Ganti `<TOKEN>`, `<PROJECT_REF>`, dan `<SECRET>`:
+Replace `<TOKEN>`, `<PROJECT_REF>`, and `<SECRET>`:
 
 ```bash
 curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
@@ -101,38 +108,38 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
   -d "secret_token=<SECRET>"
 ```
 
-Balasan harus `{"ok":true,"result":true,"description":"Webhook was set"}`.
-Periksa kapan pun dengan `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`.
+The reply should be `{"ok":true,"result":true,"description":"Webhook was set"}`.
+You can check it anytime with `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`.
 
-> Bila token yang sama pernah dipakai bot/proses lain dengan metode polling
-> (`getUpdates`), webhook ini menggantikannya — satu token hanya bisa punya
-> satu cara menerima update.
+> If the same token was previously used by another bot/process with polling
+> (`getUpdates`), this webhook replaces it — one token can only receive
+> updates one way.
 
-### 7. Uji coba
+### 7. Test it
 
-1. Chat ke bot kamu -> `/start` -> menu muncul.
-2. `/saldo` -> saldo bank dan fund tampil, cocok dengan web.
-3. `/catat` -> jalankan satu alur penuh dengan nominal kecil -> cek transaksi muncul di aplikasi web.
-4. Tap **Undo** -> transaksi terhapus.
-5. (Opsional) Chat dari akun Telegram lain -> harus ditolak.
+1. Chat with your bot -> `/start` -> the menu appears.
+2. `/saldo` (or `/balance`) -> bank and fund balances show, matching the web.
+3. `/catat` (or `/add`) -> run one full flow with a small amount -> check the transaction appears in the web app.
+4. Tap **Undo** -> the transaction is deleted.
+5. (Optional) Chat from another Telegram account -> it must be rejected.
 
 ---
 
-## Pemecahan Masalah
+## Troubleshooting
 
-| Gejala | Penyebab paling mungkin |
+| Symptom | Most likely cause |
 |---|---|
-| Bot diam total | Webhook belum terdaftar (langkah 6), atau URL salah. Cek `getWebhookInfo` — kolom `last_error_message` memberi petunjuk. |
-| Balasan 401 di log fungsi | `secret_token` saat setWebhook tidak sama dengan `TELEGRAM_WEBHOOK_SECRET`. Samakan, lalu setWebhook ulang. |
-| Semua chat ditolak | `TELEGRAM_ALLOWED_USER_ID` salah. Bandingkan dengan ID dari @userinfobot (bot juga menyebutkan ID pengirim pada pesan penolakan). |
-| Error menyebut `telegram_session` | Migrasi langkah 1 belum diterapkan di database live. |
-| Fungsi tidak ditemukan / 404 | Deploy belum dilakukan atau nama fungsi bukan `telegram-bot`. |
-| Alur terasa mulai dari awal lagi | Sesi kedaluwarsa setelah 2 jam tidak aktif — memang begitu. Mulai lagi dengan `/catat`. |
+| The bot is completely silent | The webhook isn't registered (step 6), or the URL is wrong. Check `getWebhookInfo` — the `last_error_message` field tells you more. |
+| 401 responses in the function logs | The `secret_token` used at setWebhook doesn't match `TELEGRAM_WEBHOOK_SECRET`. Make them match, then set the webhook again. |
+| Every chat is rejected | `TELEGRAM_ALLOWED_USER_ID` is wrong. Compare it with the ID from @userinfobot (the bot also states the sender's ID in its rejection message). |
+| An error mentions `telegram_session` | The step 1 migration hasn't been applied to the live database yet. |
+| Function not found / 404 | The deploy hasn't been run, or the function name isn't `telegram-bot`. |
+| The flow seems to restart from the beginning | Sessions expire after 2 hours of inactivity — that's by design. Start again with `/catat` or `/add`. |
 
-Log fungsi bisa dilihat di Dashboard Supabase -> Edge Functions -> `telegram-bot` -> Logs.
+Function logs are in the Supabase Dashboard -> Edge Functions -> `telegram-bot` -> Logs.
 
-## Batasan v1
+## v1 Limitations
 
-- Hanya **membuat** transaksi. Edit/hapus transaksi lama tetap lewat web (Undo hanya untuk transaksi yang baru dibuat di sesi chat yang sama).
-- Tidak ada entri ledger dan tidak ada mode satu baris (quick entry) — itu kandidat v2.
-- Satu pengguna saja (allowlist satu ID).
+- **Creates** transactions only. Editing/deleting older transactions still happens on the web (Undo only covers the transaction just created in the same chat session).
+- No ledger entries and no one-line quick entry mode — those are v2 candidates.
+- Single user only (a one-ID allowlist).
